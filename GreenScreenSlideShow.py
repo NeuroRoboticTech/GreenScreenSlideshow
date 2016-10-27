@@ -21,24 +21,23 @@
 # Last Updated: 10 June 2016
 # http://www.NeuroRoboticTech.com/
 
+import os
 import argparse
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
-import image_utils
 import copy
 import random
 from datetime import datetime
 
-def findFiles(input_dir, file_type): 
+def findFiles(input_dir, file_typea): 
     #Get the files in the directory of the given type
-    included_extenstions = [file_type]
     files_list = [fn for fn in os.listdir(input_dir)
-                    if any(fn.endswith(ext) for ext in included_extenstions)]
+                    if any(fn.endswith(ext) for ext in file_typea)]
     files = sorted(set(files_list))
     return files
 
-
+scale_factor = 1.0
 random.seed(datetime.now())
     
 ap = argparse.ArgumentParser()
@@ -47,9 +46,11 @@ ap.add_argument("-b", "--background_images", required = False, help = "Path to b
 args = vars(ap.parse_args())
 
 if args["greenscreen_images"] is None:
-    args["greenscreen_images"] = "./GreenScreens"
+    args["greenscreen_images"] = "C:\\Projects\GreenScreenSlideShow\GreenScreens"
 if args["background_images"] is None:
-    args["background_images"] = "./Backgrounds"
+    args["background_images"] = "C:\\Projects\GreenScreenSlideShow\Backgrounds"
+
+print "Starting up"
     
 # Read in images
 greenScreenPath = args["greenscreen_images"]
@@ -59,25 +60,86 @@ backgroundPath = args["background_images"]
 print("Background path: %s" % backgroundPath)
 
 c = ''
-#while c != 'q' && c!= 'Q':
-background_images = findFiles(backgroundPath, '.JPG')
-greenscreen_images = findFiles(greenScreenPath, '.JPG')
+background_images = findFiles(backgroundPath, ['.JPG', '.jpg', '.png', '.PNG'])
+greenscreen_images = findFiles(greenScreenPath, ['.JPG', '.jpg', '.png', '.PNG'])
+#print "Background image list:"
+#print background_images
 
-selBackground = random.randrange(0, len(background_images)-1)
-selGreenScreen = random.randrange(0, len(greenscreen_images)-1)
+#print "Greenscreen image list:"
+#print greenscreen_images
 
-background = cv2.imread(background_images[selBackground])
-greenscreen = cv2.imread(greenscreen_images[selGreenScreen])
+while c != 113:
 
-#Now create a mask for the green portion of the greenscreen
-lower_green = np.array([median_green-60,50,50])
-upper_green = np.array([median_green+60,255,255])
+	if len(background_images) > 1:
+		selBackground = random.randrange(0, len(background_images)-1)
+	else:
+		selBackground = 0
+		
+	if len(greenscreen_images) > 1:
+		selGreenScreen = random.randrange(0, len(greenscreen_images)-1)
+	else:
+		selGreenScreen = 0
 
-# Threshold the HSV image to get only bright green colors
-mask = cv2.inRange(greenscreen, lower_green, upper_green)
+	background_file = backgroundPath + "\\" + background_images[selBackground]
+	print "Background File: " + background_file
+	background = cv2.imread(background_file)
+	#cv2.imshow("background" ,background)
 
-cv2.imshow("mask" ,mask)
-cv2.waitKey(0)  
+	greenscreen_file = greenScreenPath + "\\" + greenscreen_images[selGreenScreen]
+	print "GreenScreen File: " + greenscreen_file
+	greenscreen = cv2.imread(greenscreen_file)
+	#cv2.imshow("greenscreen" ,greenscreen)
 
-    
+	#green_rows, green_cols, green_depth = greenscreen.shape
+	#print "green_cols: ", green_cols
+	#print "green_rows: ", green_rows
+	
+	#if green_cols > green_rows:
+	#	rotM = cv2.getRotationMatrix2D((green_cols/2,green_rows/2),90,1)
+	#	greenscreen = cv2.warpAffine(greenscreen,rotM,(green_cols,green_rows))
+	
+	#Now create a mask for the green portion of the greenscreen
+	lower_green = np.array([30, 50, 0])
+	upper_green = np.array([80, 255, 255])
 
+	hsv = cv2.cvtColor(greenscreen, cv2.COLOR_BGR2HSV)
+
+	#print hsv[0,0]
+
+	# Threshold the HSV image to get only bright green colors
+	init_mask = cv2.inRange(hsv, lower_green, upper_green)
+	inv_mask =  cv2.bitwise_not(init_mask)
+
+	#kernel = np.ones((15,15),np.float32)/225
+	#smoothed = cv2.filter2D(inv_mask,-1,kernel)
+
+	#kernel = np.ones((3, 3), np.uint8)
+	#eroded_mask = cv2.erode(init_mask, kernel, iterations = 2)
+	#dilated_mask = cv2.dilate(smoothed, kernel, iterations = 1)
+	#dilated_mask = eroded_mask
+
+	cut_img = cv2.bitwise_and(greenscreen, greenscreen, mask = inv_mask)
+	print cut_img.shape
+	print background.shape
+
+	scale_img = cv2.resize(cut_img, (int(background.shape[1]/scale_factor), int(background.shape[0]/scale_factor)), 0, 0, interpolation = cv2.INTER_AREA)
+	print scale_img.shape
+
+	add_img = np.zeros([background.shape[0], background.shape[1], background.shape[2]])
+	print add_img.shape
+
+	add_img[(background.shape[0]- int(background.shape[0]/scale_factor)):background.shape[0], 0:int(background.shape[1]/scale_factor), :] = scale_img/255.0
+
+	scale_init_mask = cv2.resize(init_mask, (int(background.shape[1]/scale_factor), int(background.shape[0]/scale_factor)), 0, 0, interpolation = cv2.INTER_AREA)
+	back_cut_img = cv2.bitwise_and(background, background, mask = scale_init_mask)
+
+	comb_img = back_cut_img/255.0 + add_img
+
+	cv2.namedWindow("cut img", cv2.WND_PROP_FULLSCREEN)          
+	cv2.setWindowProperty("cut img", cv2.WND_PROP_FULLSCREEN, cv2.cv.CV_WINDOW_FULLSCREEN)
+	cv2.imshow("cut img", comb_img)
+	#Wait 10 seconds and then go to next image
+	c = cv2.waitKey(5000)  
+	print c
+		
+print "shutting down"
